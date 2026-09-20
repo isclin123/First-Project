@@ -1,1 +1,2 @@
 I'm a text file
+This line was added to test the edit-commit-push cycle.
