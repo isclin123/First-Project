@@ -1,0 +1,173 @@
+---
+title: "Homework 4"
+output:
+  github_document:
+    toc: true
+    html_preview: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = TRUE)
+options(width = 100)
+```
+
+
+
+```{r install-packages, eval=FALSE}
+install.packages(c("DBI", "RMariaDB", "mdsr", "knitr", "rmarkdown"))
+```
+
+```{r load-packages, warning=FALSE}
+library(DBI)
+library(RMariaDB)
+library(mdsr)
+```
+
+## Q2
+
+```{r q2}
+con_wai <- dbConnect(
+  MariaDB(),
+  host = "scidb.smith.edu",
+  user = "waiuser",
+  password = "smith_waiDB",
+  dbname = "wai"
+)
+
+q2 <- dbGetQuery(con_wai, "
+  SELECT COUNT(*) AS n_rows
+  FROM Measurements;
+")
+knitr::kable(q2)
+dbDisconnect(con_wai)
+```
+
+The `Measurements` table contains **`r format(as.numeric(q2$n_rows), big.mark = ",", trim = TRUE)` rows**.
+
+## Q3
+
+```{r q3}
+con_air <- dbConnect_scidb("airlines")
+
+q3 <- dbGetQuery(con_air, "
+  SELECT DISTINCT year
+  FROM flights
+  ORDER BY year;
+")
+knitr::kable(q3)
+```
+
+The available years are **`r paste(q3$year, collapse = ", ")`**.
+`DISTINCT` returns each year only once.
+
+## Q4.1
+
+```{r q4-1}
+q4_1 <- dbGetQuery(con_air, "
+  SELECT COUNT(*) AS n_flights,
+         SUM(cancelled = 1) AS n_cancelled,
+         SUM(cancelled = 0 AND diverted = 0) AS n_completed
+  FROM flights
+  WHERE year = 2015 AND month = 5 AND day = 14
+    AND dest = 'DFW';
+")
+knitr::kable(q4_1)
+```
+
+There are **`r q4_1$n_flights` flight records** with DFW as the destination on
+May 14, 2015. This total includes `r q4_1$n_cancelled` cancelled flights.
+If "flew into" means non-cancelled, non-diverted arrivals, the answer is
+**`r q4_1$n_completed` flights**.
+
+## Q4.2
+
+```{r q4-2}
+q4_2 <- dbGetQuery(con_air, "
+  SELECT dest, COUNT(*) AS n_flights
+  FROM flights
+  WHERE year = 2015 AND origin = 'ORD'
+  GROUP BY dest
+  ORDER BY n_flights DESC, dest
+  LIMIT 6;
+")
+knitr::kable(q4_2, format.args = list(big.mark = ","))
+```
+
+The six most common destinations were **`r paste(q4_2$dest, collapse = ", ")`**,
+in descending order. **`r q4_2$dest[1]`** was the most common, with
+**`r format(as.numeric(q4_2$n_flights[1]), big.mark = ",", trim = TRUE)` flights**.
+
+## Q4.3
+
+```{r q4-3}
+q4_3 <- dbGetQuery(con_air, "
+  SELECT dest,
+         AVG(arr_delay) AS avg_arr_delay_minutes,
+         COUNT(arr_delay) AS n_observed_delays
+  FROM flights
+  WHERE year = 2015
+  GROUP BY dest
+  ORDER BY avg_arr_delay_minutes DESC, dest
+  LIMIT 1;
+")
+knitr::kable(q4_3, digits = 2)
+```
+
+**`r q4_3$dest`** had the highest average arrival delay, approximately
+**`r sprintf("%.2f", q4_3$avg_arr_delay_minutes)` minutes**, based on
+`r q4_3$n_observed_delays` non-missing delay values.
+`AVG()` excludes SQL `NULL` values. Negative delays, representing early arrivals,
+are retained, and no minimum flight-count threshold is imposed.
+
+## Q4.4
+
+```{r q4-4}
+q4_4 <- dbGetQuery(con_air, "
+  SELECT COUNT(*) AS n_flights,
+         SUM(dest = 'BDL') AS n_inbound,
+         SUM(origin = 'BDL') AS n_outbound,
+         SUM(cancelled = 1) AS n_cancelled,
+         SUM(
+           cancelled = 0 AND
+           (origin = 'BDL' OR (dest = 'BDL' AND diverted = 0))
+         ) AS n_operated_to_or_from_bdl
+  FROM flights
+  WHERE year = 2015
+    AND (origin = 'BDL' OR dest = 'BDL');
+")
+knitr::kable(q4_4, format.args = list(big.mark = ","))
+```
+
+There are **`r format(as.numeric(q4_4$n_flights), big.mark = ",", trim = TRUE)` flight records**
+to or from BDL in 2015: `r format(q4_4$n_inbound, big.mark = ",", trim = TRUE)`
+inbound and `r format(q4_4$n_outbound, big.mark = ",", trim = TRUE)` outbound.
+The parentheses ensure that the year condition applies to both directions.
+
+The total includes `r q4_4$n_cancelled` cancelled flights.
+Excluding cancellations and inbound flights diverted away from BDL gives
+**`r format(q4_4$n_operated_to_or_from_bdl, big.mark = ",", trim = TRUE)` flights**
+that operated to or from BDL according to these fields. A non-cancelled flight
+departing BDL is included even if it was later diverted.
+
+## Q4.5
+
+```{r q4-5}
+q4_5 <- dbGetQuery(con_air, "
+  SELECT c.name AS airline, f.carrier, f.flight,
+         f.origin, f.dest
+  FROM flights AS f
+  LEFT JOIN carriers AS c ON f.carrier = c.carrier
+  WHERE f.year = 2015 AND f.month = 9 AND f.day = 26
+    AND (
+      (f.origin = 'LAX' AND f.dest = 'JFK')
+      OR (f.origin = 'JFK' AND f.dest = 'LAX')
+    )
+  ORDER BY f.origin, c.name, f.flight;
+")
+knitr::kable(q4_5)
+```
+
+The table lists all flights in **both directions**. 
+```{r disconnect, include=FALSE}
+dbDisconnect(con_air)
+```
